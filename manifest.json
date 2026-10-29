@@ -1,0 +1,36 @@
+{
+  "id": "/ytc/",
+  "name": "聖經真理影音收藏庫",
+  "short_name": "聖經真理",
+  "description": "瀏覽聖經真理影音，並從 YouTube 分享影片加入收藏。",
+  "lang": "zh-TW",
+  "start_url": "/ytc/",
+  "scope": "/ytc/",
+  "display": "standalone",
+  "background_color": "#f7f8f4",
+  "theme_color": "#2f5c4c",
+  "icons": [
+    {
+      "src": "/ytc/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/ytc/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "share_target": {
+    "action": "/ytc/share-target.html",
+    "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
+}

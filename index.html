@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="聖經真理影音收集庫：公開瀏覽、搜尋與依影音類型整理。" />
     <title>聖經真理</title>
+    <meta name="theme-color" content="#2f5c4c" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" href="./icons/icon-192.png" type="image/png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:wght@500;600;700;900&display=swap" rel="stylesheet" />
@@ -12,10 +15,10 @@
     <script src="./app.js" defer></script>
   </head>
   <body>
-    <div class="app-shell">
+      <div class="app-shell">
       <header class="topbar">
         <a class="brand" href="./" aria-label="回到聖經真理首頁">
-          <img class="brand-mark" src="/manus-storage/church-logo_2bdca3e7.webp" data-fallback="./assets/church-logo.webp" onerror="if (this.dataset.fallback) { this.src = this.dataset.fallback; delete this.dataset.fallback; }" alt="" aria-hidden="true" />
+          <img class="brand-mark" src="./assets/church-logo.webp" alt="" aria-hidden="true" />
           <span class="brand-text">
             <span class="eyebrow">ARCHIVE / BIBLE TRUTH</span>
             <strong>聖經真理</strong>
@@ -68,10 +71,25 @@
         </div>
 
         <section id="mediaGrid" class="media-list" aria-live="polite"></section>
+
+        <section class="youtube-share-section" aria-labelledby="youtubeShareHeading">
+          <div class="collection-header">
+            <div>
+              <p class="eyebrow">SHARED FROM YOUTUBE</p>
+              <h2 id="youtubeShareHeading">YouTube 分享收藏</h2>
+            </div>
+            <div class="collection-meta">
+              <span id="youtubeShareCount">載入中…</span>
+              <button id="youtubeShareRefresh" class="button button-outline" type="button">重新整理</button>
+            </div>
+          </div>
+          <p class="youtube-share-note">在 YouTube 點選「分享」，再選擇「聖經真理」即可加入影片。</p>
+          <section id="youtubeShareGrid" class="media-list" aria-live="polite"></section>
+        </section>
       </main>
 
       <footer class="footer">
-        <span>公開瀏覽 · 管理者才可寫入</span>
+        <span>公開瀏覽 · 管理者管理影音 · YouTube 分享可收藏</span>
         <span>聖經真理影音收集庫</span>
       </footer>
     </div>

@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0B2447">
+  <title>YouTube 影片收藏</title>
+  <style>
+    :root { color-scheme: light; --navy: #0B2447; --teal: #19A7CE; --ink: #1A202C; --muted: #718096; --line: #E2E8F0; --pale: #F0F4F8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #fff; color: var(--ink); font: 16px/1.55 system-ui, -apple-system, "Noto Sans TC", sans-serif; }
+    main { max-width: 820px; margin: 0 auto; padding: 28px 18px 48px; }
+    h1, h2 { color: var(--navy); line-height: 1.25; }
+    h1 { margin: 0 0 8px; font-size: 1.8rem; }
+    h2 { margin: 28px 0 12px; font-size: 1.25rem; }
+    p { margin: 8px 0; }
+    .intro, .note { color: var(--muted); }
+    .status { margin: 18px 0; min-height: 48px; padding: 12px 14px; border-left: 4px solid var(--teal); background: var(--pale); }
+    .status[data-kind="error"] { border-left-color: #A33; }
+    .status[data-kind="success"] { border-left-color: #287A55; }
+    label { display: block; margin: 14px 0 6px; color: var(--navy); font-weight: 700; }
+    input, textarea { width: 100%; padding: 11px 12px; border: 1px solid #A0AEC0; border-radius: 4px; font: inherit; }
+    textarea { min-height: 78px; resize: vertical; }
+    button { min-height: 44px; margin-top: 12px; padding: 10px 16px; border: 0; border-radius: 4px; background: var(--navy); color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+    button.secondary { background: #E6F4F8; color: var(--navy); border: 1px solid var(--teal); }
+    button:disabled { opacity: .65; cursor: wait; }
+    .section { border-top: 1px solid var(--line); margin-top: 26px; padding-top: 8px; }
+    .record { display: grid; grid-template-columns: 160px 1fr; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+    .record img { display: block; width: 160px; aspect-ratio: 16 / 9; object-fit: cover; background: var(--pale); }
+    .record-title { color: var(--navy); font-weight: 700; text-decoration: none; }
+    .record-meta { margin-top: 5px; color: var(--muted); font-size: .9rem; }
+    .empty { color: var(--muted); padding: 14px 0; }
+    .footer { margin-top: 26px; font-size: .92rem; }
+    .footer a { color: var(--navy); }
+    [hidden] { display: none !important; }
+    @media (max-width: 560px) {
+      main { padding: 22px 14px 36px; }
+      .record { grid-template-columns: 112px 1fr; gap: 10px; }
+      .record img { width: 112px; }
+      h1 { font-size: 1.5rem; }
+    }
+  </style>
+  <link rel="manifest" href="/ytc/manifest.json">
+</head>
+<body>
+  <main>
+    <h1>YouTube 影片收藏</h1>
+    <p class="intro">從 YouTube 分享影片，或貼上影片網址加入收藏。</p>
+
+    <div id="status" class="status" role="status" aria-live="polite">正在檢查分享內容……</div>
+
+    <section id="share-summary" hidden>
+      <p><strong>準備收藏：</strong> <a id="shared-link" href="#" target="_blank" rel="noopener noreferrer">開啟 YouTube 影片</a></p>
+      <p id="shared-title" class="note"></p>
+    </section>
+
+    <section id="manual-section" class="section" hidden>
+      <h2>手動貼上影片網址</h2>
+      <form id="manual-form">
+        <label for="manual-url">YouTube 網址</label>
+        <input id="manual-url" name="url" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="url" required>
+        <label for="manual-title">標題（選填）</label>
+        <input id="manual-title" name="title" type="text" maxlength="300" placeholder="影片標題">
+        <button id="submit-button" type="submit">加入收藏</button>
+      </form>
+    </section>
+
+    <section class="section" aria-labelledby="list-heading">
+      <h2 id="list-heading">最近收藏</h2>
+      <button id="refresh-button" class="secondary" type="button">重新載入清單</button>
+      <div id="records" aria-live="polite"></div>
+    </section>
+
+    <p class="footer"><a href="/ytc/">返回收藏首頁</a></p>
+  </main>
+
+  <script>
+    // 此範例直接呼叫公開部署的 Apps Script。若把本頁放到公開 GitHub Pages，
+    // 任何訪客都能從原始碼看到此網址並呼叫 API；請勿用於敏感資料。
+    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbywcOy4bzGTVUpCd6pJi92rwbAHz5Sy5uHYfy9-p9QP23nfL-FaWTt5Fbns4iT2Gde4/exec';
+    const STATUS_POLL_ATTEMPTS = 24;
+    const STATUS_POLL_INTERVAL_MS = 700;
+
+    const statusEl = document.getElementById('status');
+    const shareSummaryEl = document.getElementById('share-summary');
+    const sharedLinkEl = document.getElementById('shared-link');
+    const sharedTitleEl = document.getElementById('shared-title');
+    const manualSectionEl = document.getElementById('manual-section');
+    const manualFormEl = document.getElementById('manual-form');
+    const submitButtonEl = document.getElementById('submit-button');
+    const recordsEl = document.getElementById('records');
+    let retryRequest = null;
+
+    document.addEventListener('DOMContentLoaded', initialize);
+
+    async function initialize() {
+      document.getElementById('refresh-button').addEventListener('click', loadRecords);
+      manualFormEl.addEventListener('submit', onManualSubmit);
+
+      const share = readShareParameters();
+      if (share.url) {
+        manualSectionEl.hidden = true;
+        shareSummaryEl.hidden = false;
+        sharedLinkEl.href = share.url;
+        sharedLinkEl.textContent = share.url;
+        sharedTitleEl.textContent = share.title || '分享內容未提供標題；收藏時會以影片 ID 作為預設標題。';
+        await submitVideo(share);
+      } else {
+        manualSectionEl.hidden = false;
+        setStatus('沒有從分享選單收到 YouTube 網址。可在下方貼上網址收藏。', 'info');
+      }
+
+      await loadRecords();
+    }
+
+    function readShareParameters() {
+      const params = new URLSearchParams(window.location.search);
+      const sharedTitle = (params.get('title') || '').trim();
+      const sharedText = (params.get('text') || '').trim();
+      const sharedUrl = (params.get('url') || '').trim();
+      const url = findYouTubeUrl(sharedUrl) || findYouTubeUrl(sharedText) || findYouTubeUrl(sharedTitle);
+      const title = sharedTitle || removeUrlFromText(sharedText, url);
+      return { url, title, text: sharedText };
+    }
+
+    function findYouTubeUrl(value) {
+      const text = String(value || '').trim();
+      if (!text) return '';
+
+      const candidates = [];
+      if (/^https?:\/\//i.test(text)) candidates.push(text);
+      const matches = text.match(/https?:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)\/[^\s<>"'`]+/ig) || [];
+      candidates.push(...matches);
+
+      for (const candidate of candidates) {
+        const cleaned = candidate.replace(/[),.;!?]+$/, '');
+        if (parseYouTubeVideoId(cleaned)) return cleaned;
+      }
+      return '';
+    }
+
+    function parseYouTubeVideoId(value) {
+      try {
+        const parsed = new URL(value);
+        const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+        const validHost = ['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be'].includes(host);
+        if (!validHost || !['http:', 'https:'].includes(parsed.protocol)) return '';
+
+        let id = '';
+        if (host === 'youtu.be') {
+          id = parsed.pathname.split('/').filter(Boolean)[0] || '';
+        } else if (parsed.pathname === '/watch') {
+          id = parsed.searchParams.get('v') || '';
+        } else {
+          const parts = parsed.pathname.split('/').filter(Boolean);
+          if (['shorts', 'embed', 'live'].includes(parts[0])) id = parts[1] || '';
+        }
+        return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : '';
+      } catch (error) {
+        return '';
+      }
+    }
+
+    function removeUrlFromText(text, url) {
+      if (!text) return '';
+      return text.replace(url || /https?:\/\/\S+/ig, '').replace(/\s+/g, ' ').trim();
+    }
+
+    async function onManualSubmit(event) {
+      event.preventDefault();
+      const url = findYouTubeUrl(document.getElementById('manual-url').value);
+      if (!url) {
+        setStatus('網址格式不正確，請貼上有效的 YouTube 影片連結。', 'error');
+        return;
+      }
+      const title = document.getElementById('manual-title').value.trim();
+      shareSummaryEl.hidden = false;
+      sharedLinkEl.href = url;
+      sharedLinkEl.textContent = url;
+      sharedTitleEl.textContent = title || '';
+      await submitVideo({ url, title, text: '' });
+      await loadRecords();
+    }
+
+    async function submitVideo(share) {
+      const videoId = parseYouTubeVideoId(share.url);
+      if (!videoId) {
+        setStatus('無法辨識這個 YouTube 網址。', 'error');
+        return;
+      }
+
+      const request = {
+        action: 'add',
+        requestId: createRequestId(),
+        url: share.url,
+        title: share.title || '',
+        text: share.text || '',
+        category: '',
+        note: ''
+      };
+      retryRequest = request;
+      submitButtonEl.disabled = true;
+      setStatus('已送出收藏請求，正在確認試算表寫入結果……', 'info');
+
+      try {
+        // Apps Script 的 POST 回應在跨網域 no-cors 模式下不可讀；
+        // 所以只將 POST 視為「已送出」，再用唯讀 JSONP status 查詢明確結果。
+        await fetch(APPS_SCRIPT_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(request)
+        });
+        await pollRequestStatus(request);
+      } catch (error) {
+        setStatus('目前無法確認伺服器回應。請稍後按「重試確認」；系統會沿用同一 requestId，降低重複新增風險。', 'error');
+        showRetryButton();
+      } finally {
+        submitButtonEl.disabled = false;
+      }
+    }
+
+    async function pollRequestStatus(request) {
+      for (let attempt = 0; attempt < STATUS_POLL_ATTEMPTS; attempt++) {
+        if (attempt > 0) await sleep(STATUS_POLL_INTERVAL_MS);
+        let status;
+        try {
+          status = await jsonp({
+            action: 'status',
+            requestId: request.requestId
+          });
+        } catch (error) {
+          continue;
+        }
+
+        if (status.state === 'done' && status.result && status.result.ok) {
+          const result = status.result;
+          setStatus(result.duplicate ? '這部影片已經收藏過。' : '收藏成功，影片已寫入 Google 試算表。', 'success');
+          removeRetryButton();
+          await loadRecords();
+          return;
+        }
+        if (status.state === 'error') {
+          const message = status.result && status.result.error ? status.result.error : 'Apps Script 回報處理失敗。';
+          setStatus('收藏未完成：' + message, 'error');
+          showRetryButton();
+          return;
+        }
+      }
+
+      setStatus('請求已送出，但暫時未取得寫入確認。先不要重複分享同一影片；可按「重試確認」查詢同一筆請求。', 'error');
+      showRetryButton();
+    }
+
+    function jsonp(params) {
+      return new Promise((resolve, reject) => {
+        const callbackName = 'ytcb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+        const query = new URLSearchParams({ ...params, callback: callbackName, _: String(Date.now()) });
+        const script = document.createElement('script');
+        const timeout = window.setTimeout(() => finish(new Error('JSONP timeout')), 10000);
+
+        function cleanup() {
+          window.clearTimeout(timeout);
+          delete window[callbackName];
+          script.remove();
+        }
+        function finish(error, data) {
+          cleanup();
+          if (error) reject(error);
+          else resolve(data);
+        }
+
+        window[callbackName] = data => finish(null, data);
+        script.onerror = () => finish(new Error('JSONP request failed'));
+        script.src = APPS_SCRIPT_URL + '?' + query.toString();
+        document.head.appendChild(script);
+      });
+    }
+
+    async function loadRecords() {
+      recordsEl.replaceChildren(makeTextElement('p', '正在讀取收藏清單……', 'empty'));
+      try {
+        const data = await jsonp({ action: 'list' });
+        if (!data || !data.ok) throw new Error((data && data.error) || '清單讀取失敗');
+        renderRecords(Array.isArray(data.records) ? data.records : []);
+      } catch (error) {
+        recordsEl.replaceChildren(makeTextElement('p', '讀取收藏清單失敗：' + (error.message || '請稍後重試。'), 'empty'));
+      }
+    }
+
+    function renderRecords(records) {
+      recordsEl.replaceChildren();
+      if (!records.length) {
+        recordsEl.appendChild(makeTextElement('p', '目前還沒有收藏影片。', 'empty'));
+        return;
+      }
+
+      records.forEach(record => {
+        const row = document.createElement('article');
+        row.className = 'record';
+
+        const image = document.createElement('img');
+        image.src = record.thumbnailUrl || (record.videoId ? 'https://i.ytimg.com/vi/' + encodeURIComponent(record.videoId) + '/hqdefault.jpg' : '');
+        image.alt = '';
+        image.loading = 'lazy';
+        image.addEventListener('error', () => { image.hidden = true; }, { once: true });
+
+        const details = document.createElement('div');
+        const link = document.createElement('a');
+        link.className = 'record-title';
+        link.href = record.url || '#';
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = record.title || ('YouTube 影片 ' + (record.videoId || ''));
+
+        const meta = document.createElement('div');
+        meta.className = 'record-meta';
+        meta.textContent = [record.date, record.channel, record.category, record.watchStatus].filter(Boolean).join(' · ');
+
+        details.append(link, meta);
+        if (record.note) details.appendChild(makeTextElement('p', record.note, 'record-meta'));
+        row.append(image, details);
+        recordsEl.appendChild(row);
+      });
+    }
+
+    function makeTextElement(tag, text, className) {
+      const element = document.createElement(tag);
+      element.textContent = text;
+      if (className) element.className = className;
+      return element;
+    }
+
+    function setStatus(message, kind) {
+      statusEl.textContent = message;
+      statusEl.dataset.kind = kind || 'info';
+    }
+
+    function createRequestId() {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+      return 'yt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 14);
+    }
+
+    function showRetryButton() {
+      removeRetryButton();
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary';
+      button.id = 'retry-button';
+      button.textContent = '以同一請求重試';
+      button.addEventListener('click', async () => {
+        if (!retryRequest) return;
+        button.disabled = true;
+        setStatus('使用原 requestId 重送並確認結果……', 'info');
+        try {
+          await fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify(retryRequest)
+          });
+          await pollRequestStatus(retryRequest);
+        } catch (error) {
+          setStatus('仍無法連線或確認結果；稍後可再用同一請求重試。', 'error');
+        } finally {
+          button.disabled = false;
+        }
+      });
+      statusEl.insertAdjacentElement('afterend', button);
+    }
+
+    function removeRetryButton() {
+      const button = document.getElementById('retry-button');
+      if (button) button.remove();
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => window.setTimeout(resolve, ms));
+    }
+  </script>
+</body>
+</html>
